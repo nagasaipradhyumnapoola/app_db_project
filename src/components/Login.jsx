@@ -35,7 +35,9 @@ export default function Login({ onLoginSuccess }) {
         if (error.message.includes('Invalid login credentials')) {
           setErrorMessage('Invalid Teacher ID or password. Please verify and try again.');
         } else if (error.message.includes('Email not confirmed')) {
-          setErrorMessage('Account email not confirmed. Please verify the account.');
+          setErrorMessage('Account email not confirmed. Please verify the account in Supabase.');
+        } else if (error.message.includes('Failed to fetch')) {
+          setErrorMessage('Connection failed: Unable to reach Supabase. Please check your internet connection.');
         } else {
           setErrorMessage(error.message || 'Login failed.');
         }
@@ -43,7 +45,11 @@ export default function Login({ onLoginSuccess }) {
         onLoginSuccess(data.session);
       }
     } catch (err) {
-      setErrorMessage(err.message || 'An unexpected error occurred during sign-in.');
+      if (err.message && err.message.includes('Failed to fetch')) {
+        setErrorMessage('Connection failed: Unable to reach Supabase. Please check your internet connection.');
+      } else {
+        setErrorMessage(err.message || 'An unexpected error occurred during sign-in.');
+      }
     } finally {
       setLoading(false);
     }
@@ -74,13 +80,16 @@ export default function Login({ onLoginSuccess }) {
               <input
                 id="teacherId"
                 type="text"
-                placeholder="e.g. T001"
+                placeholder="e.g. T001 or t001@school.edu"
                 value={teacherId}
-                onChange={(e) => setTeacherId(e.target.value.toUpperCase())}
+                onChange={(e) => setTeacherId(e.target.value)}
                 disabled={loading}
                 autoComplete="username"
                 required
               />
+              <span className="field-hint">
+                Enter your Teacher ID (e.g. <code>T001</code>) or full email.
+              </span>
             </div>
 
             <div className="form-group">

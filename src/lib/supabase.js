@@ -44,8 +44,12 @@ export const supabaseConfigError = configError;
  */
 export function teacherIdToEmail(teacherId) {
   if (!teacherId) return '';
-  const cleanId = teacherId.trim().toLowerCase();
-  return `${cleanId}@${teacherEmailDomain}`;
+  const clean = teacherId.trim().toLowerCase();
+  // If the user already entered a full email, return it directly
+  if (clean.includes('@')) {
+    return clean;
+  }
+  return `${clean}@${teacherEmailDomain}`;
 }
 
 /**
