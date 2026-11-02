@@ -1,12 +1,18 @@
 import { supabase } from '../lib/supabase';
 
-const JAVA_API = import.meta.env.VITE_JAVA_API_URL || 'http://localhost:8080/api';
+// Uses Vite proxy (/api -> http://127.0.0.1:8080) for rock-solid same-origin connectivity
+const JAVA_API = '/api';
 
 /**
- * Retrieves the current JWT access token from Supabase session.
+ * Retrieves the current JWT access token from session or local storage.
  */
 async function getAuthToken() {
   try {
+    const saved = localStorage.getItem('faculty_session');
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (parsed.access_token) return parsed.access_token;
+    }
     const { data: { session } } = await supabase.auth.getSession();
     return session?.access_token || null;
   } catch (err) {
@@ -70,7 +76,7 @@ export function formatDatabaseError(error) {
 
 /**
  * Student Database Service
- * Communicates with the single-file Java Backend (Server.java at :8080),
+ * Communicates with the single-file Java Backend (Server.java at :8080) via Vite proxy (/api),
  * with graceful direct fallback if the Java server is offline.
  */
 export const studentService = {
@@ -87,16 +93,19 @@ export const studentService = {
 
       const data = await res.json();
       if (res.ok && data.access_token) {
-        // Sync local Supabase client session
-        await supabase.auth.setSession({
-          access_token: data.access_token,
-          refresh_token: data.refresh_token
-        });
+        // Persist session locally
+        localStorage.setItem('faculty_session', JSON.stringify(data));
+        try {
+          await supabase.auth.setSession({
+            access_token: data.access_token,
+            refresh_token: data.refresh_token
+          });
+        } catch (ignored) {}
         return { data: { session: data, user: data.user }, error: null };
       }
-      return { data: null, error: data.error || data.msg || 'Invalid credentials' };
+      return { data: null, error: data.error || 'Invalid Teacher ID or password.' };
     } catch (err) {
-      // Return null to signal fallback to direct client
+      // If Java backend is unreachable, fallback to direct Supabase client
       return null;
     }
   },

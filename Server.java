@@ -110,6 +110,7 @@ public class Server {
             addCorsHeaders(exchange);
             if (exchange.getRequestMethod().equalsIgnoreCase("OPTIONS")) {
                 exchange.sendResponseHeaders(204, -1);
+                exchange.close();
                 return;
             }
             String json = "{\"status\":\"UP\",\"engine\":\"Java 25 Standalone Server\",\"port\":" + PORT + "}";
@@ -126,6 +127,7 @@ public class Server {
             addCorsHeaders(exchange);
             if (exchange.getRequestMethod().equalsIgnoreCase("OPTIONS")) {
                 exchange.sendResponseHeaders(204, -1);
+                exchange.close();
                 return;
             }
             if (!exchange.getRequestMethod().equalsIgnoreCase("POST")) {
@@ -169,7 +171,11 @@ public class Server {
                     sendJsonResponse(exchange, 200, response.body());
                 } else {
                     System.out.println("[AUTH] Authentication failed for " + teacherId + " (Status: " + response.statusCode() + ")");
-                    sendJsonResponse(exchange, response.statusCode(), response.body());
+                    String errMessage = "Invalid Teacher ID or password. Please verify and try again.";
+                    if (response.body().contains("Email not confirmed")) {
+                        errMessage = "Account email not confirmed. Please verify the account in Supabase.";
+                    }
+                    sendJsonResponse(exchange, 401, "{\"error\":\"" + errMessage + "\"}");
                 }
             } catch (Exception e) {
                 System.err.println("[AUTH ERROR] " + e.getMessage());
@@ -480,3 +486,4 @@ public class Server {
         return errorJson;
     }
 }
+

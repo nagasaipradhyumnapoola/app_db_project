@@ -8,17 +8,37 @@ export default function App() {
   const [checkingAuth, setCheckingAuth] = useState(true);
 
   useEffect(() => {
-    // 1. Check active session on initial application load
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setCheckingAuth(false);
-    });
+    // 1. Check local session storage
+    const saved = localStorage.getItem('faculty_session');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed.access_token || parsed.user) {
+          setSession(parsed);
+          setCheckingAuth(false);
+        }
+      } catch (ignored) {}
+    }
 
-    // 2. Listen for auth changes (SIGN_IN, SIGN_OUT, TOKEN_REFRESHED)
+    // 2. Check active Supabase session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) {
+        setSession(session);
+        localStorage.setItem('faculty_session', JSON.stringify(session));
+      }
+      setCheckingAuth(false);
+    }).catch(() => setCheckingAuth(false));
+
+    // 3. Listen for auth changes
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
+      if (session) {
+        setSession(session);
+        localStorage.setItem('faculty_session', JSON.stringify(session));
+      } else {
+        localStorage.removeItem('faculty_session');
+      }
       setCheckingAuth(false);
     });
 
@@ -28,6 +48,7 @@ export default function App() {
   }, []);
 
   const handleLogout = async () => {
+    localStorage.removeItem('faculty_session');
     try {
       await supabase.auth.signOut();
     } catch (err) {
