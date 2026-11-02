@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { supabase, teacherIdToEmail } from '../lib/supabase';
+import { studentService } from '../services/studentService';
 import AsciiFlower from './AsciiFlower';
 
 export default function Login({ onLoginSuccess }) {
@@ -23,9 +24,24 @@ export default function Login({ onLoginSuccess }) {
     }
 
     setLoading(true);
-    const authEmail = teacherIdToEmail(trimmedId);
 
     try {
+      // 1. Try Authentication via Java Backend (:8080)
+      const javaAuthResult = await studentService.login(trimmedId, password);
+      if (javaAuthResult) {
+        if (javaAuthResult.error) {
+          setErrorMessage(javaAuthResult.error);
+          setLoading(false);
+          return;
+        } else if (javaAuthResult.data?.session) {
+          onLoginSuccess(javaAuthResult.data.session);
+          setLoading(false);
+          return;
+        }
+      }
+
+      // 2. Direct Supabase Fallback
+      const authEmail = teacherIdToEmail(trimmedId);
       const { data, error } = await supabase.auth.signInWithPassword({
         email: authEmail,
         password: password,

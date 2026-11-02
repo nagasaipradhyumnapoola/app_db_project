@@ -16,13 +16,29 @@ This application provides a secure portal for teachers to manage student records
 
 ## 2. Technology Stack
 
-- **Frontend:** React 19 + Vite 8
-- **Styling:** Plain CSS (Black-and-White theme, responsive, no extra CSS frameworks)
-- **Database:** Supabase PostgreSQL
+- **Frontend:** React 19 + Vite 8 (Port 7000)
+- **Backend:** Standalone Java 25 REST Server (`Server.java` on Port 8080)
+- **Styling:** Plain CSS (Minimal Black & White Theme, Botanical ASCII Art)
+- **Database:** Supabase PostgreSQL with Row Level Security (RLS)
 - **Authentication:** Supabase Auth (`auth.users`)
-- **Client SDK:** `@supabase/supabase-js`
-- **Language:** Modern JavaScript (ES Modules)
 - **Package Manager:** npm
+- **Java Requirements:** JDK 11 or higher (Tested on Java 25 LTS, zero external build tools required)
+
+---
+
+## 3. Java Backend (`Server.java`)
+
+A complete, self-contained single-file Java backend server with **zero external dependencies**:
+- **Start Command:** `java Server.java`
+- **Default Port:** `8080`
+- **Endpoints:**
+  - `GET /api/health` — Server health status
+  - `POST /api/auth/login` — Teacher authentication and JWT issuance
+  - `GET /api/students` — Fetch students (supports `?search=<reg_no>` filtering)
+  - `POST /api/students` — Validate and create student record
+  - `PUT /api/students/{id}` — Edit and update existing student
+  - `DELETE /api/students/{id}` — Delete student by primary key
+- **Features:** Auto-loads `.env`, handles CORS, validates payloads, enforces PostgreSQL constraints, and outputs terminal logs.
 
 ---
 

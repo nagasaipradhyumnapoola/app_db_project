@@ -92,7 +92,7 @@ export default function StudentsPage({ session, onLogout }) {
           <div className="navbar-brand">
             <img src="/logo.jpg" alt="Logo" className="navbar-logo-img" />
             <span className="brand-title">Student Registry</span>
-            <span className="badge badge-outline">[ AUTH_LEVEL: FACULTY ]</span>
+            <span className="badge badge-outline">[ ENGINE: JAVA 25 ]</span>
           </div>
 
           <div className="navbar-user">

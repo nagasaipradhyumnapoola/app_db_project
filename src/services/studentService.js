@@ -1,5 +1,19 @@
 import { supabase } from '../lib/supabase';
 
+const JAVA_API = import.meta.env.VITE_JAVA_API_URL || 'http://localhost:8080/api';
+
+/**
+ * Retrieves the current JWT access token from Supabase session.
+ */
+async function getAuthToken() {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    return session?.access_token || null;
+  } catch (err) {
+    return null;
+  }
+}
+
 /**
  * Validates student payload prior to submission.
  * @param {Object} studentData
@@ -41,17 +55,12 @@ export function formatDatabaseError(error) {
   const code = error.code;
   const message = error.message || '';
 
-  // PostgreSQL unique_violation error code 23505
   if (code === '23505' || message.includes('unique') || message.includes('duplicate key')) {
     return 'A student with this Register Number already exists in your records.';
   }
-
-  // PostgreSQL check_violation error code 23514
   if (code === '23514' || message.includes('check constraint')) {
     return 'Validation failed: Year must be between 1 and 4.';
   }
-
-  // RLS or permission denied
   if (code === '42501' || message.includes('row-level security') || message.includes('permission denied')) {
     return 'Permission denied: You can only manage your own student records.';
   }
@@ -61,15 +70,63 @@ export function formatDatabaseError(error) {
 
 /**
  * Student Database Service
+ * Communicates with the single-file Java Backend (Server.java at :8080),
+ * with graceful direct fallback if the Java server is offline.
  */
 export const studentService = {
   /**
-   * Fetches all students belonging to the currently authenticated teacher.
-   * Optionally filters by register number if searchQuery is provided.
-   * @param {string} [searchQuery='']
-   * @returns {Promise<{data: Array, error: string|null}>}
+   * Authenticates teacher credentials via the Java Backend.
+   */
+  async login(teacherId, password) {
+    try {
+      const res = await fetch(`${JAVA_API}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ teacherId, password })
+      });
+
+      const data = await res.json();
+      if (res.ok && data.access_token) {
+        // Sync local Supabase client session
+        await supabase.auth.setSession({
+          access_token: data.access_token,
+          refresh_token: data.refresh_token
+        });
+        return { data: { session: data, user: data.user }, error: null };
+      }
+      return { data: null, error: data.error || data.msg || 'Invalid credentials' };
+    } catch (err) {
+      // Return null to signal fallback to direct client
+      return null;
+    }
+  },
+
+  /**
+   * Fetches all students belonging to the authenticated teacher.
+   * Routes through Java Backend: GET /api/students(?search=...)
    */
   async getStudents(searchQuery = '') {
+    const token = await getAuthToken();
+
+    // 1. Try Java Backend
+    if (token) {
+      try {
+        const cleanSearch = searchQuery ? searchQuery.trim() : '';
+        const url = `${JAVA_API}/students${cleanSearch ? `?search=${encodeURIComponent(cleanSearch)}` : ''}`;
+        const res = await fetch(url, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          return { data: Array.isArray(data) ? data : [], error: null };
+        }
+      } catch (e) {
+        // Fall through to direct Supabase client
+      }
+    }
+
+    // 2. Direct Supabase Fallback
     try {
       let query = supabase
         .from('students')
@@ -78,12 +135,10 @@ export const studentService = {
 
       const cleanSearch = searchQuery ? searchQuery.trim() : '';
       if (cleanSearch) {
-        // Filter by register number matching the search query (case-insensitive)
         query = query.ilike('register_no', `%${cleanSearch}%`);
       }
 
       const { data, error } = await query;
-
       if (error) {
         return { data: [], error: formatDatabaseError(error) };
       }
@@ -95,8 +150,7 @@ export const studentService = {
 
   /**
    * Inserts a new student record for the authenticated teacher.
-   * @param {Object} studentData
-   * @returns {Promise<{data: Object|null, error: string|null}>}
+   * Routes through Java Backend: POST /api/students
    */
   async createStudent(studentData) {
     const validationError = validateStudentInput(studentData);
@@ -104,6 +158,32 @@ export const studentService = {
       return { data: null, error: validationError };
     }
 
+    const token = await getAuthToken();
+
+    // 1. Try Java Backend
+    if (token) {
+      try {
+        const res = await fetch(`${JAVA_API}/students`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify(studentData)
+        });
+
+        const json = await res.json();
+        if (res.ok) {
+          return { data: json, error: null };
+        } else {
+          return { data: null, error: json.error || 'Failed to create student via Java backend.' };
+        }
+      } catch (e) {
+        // Fall through to direct Supabase client
+      }
+    }
+
+    // 2. Direct Supabase Fallback
     try {
       const { data: { user }, error: authError } = await supabase.auth.getUser();
       if (authError || !user) {
@@ -116,7 +196,7 @@ export const studentService = {
         department: studentData.department.trim(),
         year: parseInt(studentData.year, 10),
         email: studentData.email.trim().toLowerCase(),
-        teacher_id: user.id, // Explicitly assign authenticated teacher's ID
+        teacher_id: user.id,
       };
 
       const { data, error } = await supabase
@@ -136,9 +216,7 @@ export const studentService = {
 
   /**
    * Updates an existing student record.
-   * @param {number|string} id - Student primary key
-   * @param {Object} studentData
-   * @returns {Promise<{data: Object|null, error: string|null}>}
+   * Routes through Java Backend: PUT /api/students/{id}
    */
   async updateStudent(id, studentData) {
     const validationError = validateStudentInput(studentData);
@@ -146,19 +224,39 @@ export const studentService = {
       return { data: null, error: validationError };
     }
 
-    try {
-      const { data: { user }, error: authError } = await supabase.auth.getUser();
-      if (authError || !user) {
-        return { data: null, error: 'Authentication session expired. Please log in again.' };
-      }
+    const token = await getAuthToken();
 
+    // 1. Try Java Backend
+    if (token) {
+      try {
+        const res = await fetch(`${JAVA_API}/students/${id}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify(studentData)
+        });
+
+        const json = await res.json();
+        if (res.ok) {
+          return { data: json, error: null };
+        } else {
+          return { data: null, error: json.error || 'Failed to update student via Java backend.' };
+        }
+      } catch (e) {
+        // Fall through to direct Supabase client
+      }
+    }
+
+    // 2. Direct Supabase Fallback
+    try {
       const payload = {
         register_no: studentData.register_no.trim().toUpperCase(),
         name: studentData.name.trim(),
         department: studentData.department.trim(),
         year: parseInt(studentData.year, 10),
         email: studentData.email.trim().toLowerCase(),
-        // teacher_id remains user.id
       };
 
       const { data, error } = await supabase
@@ -179,10 +277,31 @@ export const studentService = {
 
   /**
    * Deletes a student record by ID.
-   * @param {number|string} id - Student primary key
-   * @returns {Promise<{success: boolean, error: string|null}>}
+   * Routes through Java Backend: DELETE /api/students/{id}
    */
   async deleteStudent(id) {
+    const token = await getAuthToken();
+
+    // 1. Try Java Backend
+    if (token) {
+      try {
+        const res = await fetch(`${JAVA_API}/students/${id}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${token}` }
+        });
+
+        const json = await res.json();
+        if (res.ok) {
+          return { success: true, error: null };
+        } else {
+          return { success: false, error: json.error || 'Failed to delete student via Java backend.' };
+        }
+      } catch (e) {
+        // Fall through to direct Supabase client
+      }
+    }
+
+    // 2. Direct Supabase Fallback
     try {
       const { error } = await supabase
         .from('students')
@@ -198,4 +317,3 @@ export const studentService = {
     }
   },
 };
-
