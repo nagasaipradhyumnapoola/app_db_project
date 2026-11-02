@@ -95,18 +95,11 @@ export const studentService = {
       if (res.ok && data.access_token) {
         // Persist session locally
         localStorage.setItem('faculty_session', JSON.stringify(data));
-        try {
-          await supabase.auth.setSession({
-            access_token: data.access_token,
-            refresh_token: data.refresh_token
-          });
-        } catch (ignored) {}
         return { data: { session: data, user: data.user }, error: null };
       }
       return { data: null, error: data.error || 'Invalid Teacher ID or password.' };
     } catch (err) {
-      // If Java backend is unreachable, fallback to direct Supabase client
-      return null;
+      return { data: null, error: 'Unable to connect to Java backend on port 8080. Please ensure Java server is running.' };
     }
   },
 

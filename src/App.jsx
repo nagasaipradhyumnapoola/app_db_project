@@ -29,15 +29,16 @@ export default function App() {
       setCheckingAuth(false);
     }).catch(() => setCheckingAuth(false));
 
-    // 3. Listen for auth changes
+    // 3. Listen for explicit sign out
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange((event, session) => {
       if (session) {
         setSession(session);
         localStorage.setItem('faculty_session', JSON.stringify(session));
-      } else {
+      } else if (event === 'SIGNED_OUT') {
         localStorage.removeItem('faculty_session');
+        setSession(null);
       }
       setCheckingAuth(false);
     });
