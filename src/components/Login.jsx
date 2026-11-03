@@ -52,8 +52,8 @@ export default function Login({ onLoginSuccess }) {
           setErrorMessage('Invalid Teacher ID or password. Please verify and try again.');
         } else if (error.message.includes('Email not confirmed')) {
           setErrorMessage('Account email not confirmed. Please verify the account in Supabase.');
-        } else if (error.message.includes('Failed to fetch')) {
-          setErrorMessage('Connection failed: Unable to reach Supabase. Please check your internet connection.');
+        } else if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+          setErrorMessage('Connection failed: Unable to reach database. If using Brave Browser, please turn off Brave Shields for this site.');
         } else {
           setErrorMessage(error.message || 'Login failed.');
         }
@@ -61,10 +61,11 @@ export default function Login({ onLoginSuccess }) {
         onLoginSuccess(data.session);
       }
     } catch (err) {
-      if (err.message && err.message.includes('Failed to fetch')) {
-        setErrorMessage('Connection failed: Unable to reach Supabase. Please check your internet connection.');
+      const msg = err.message || '';
+      if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) {
+        setErrorMessage('Connection failed: Unable to reach database. If using Brave Browser, please turn off Brave Shields for this site.');
       } else {
-        setErrorMessage(err.message || 'An unexpected error occurred during sign-in.');
+        setErrorMessage(msg || 'An unexpected error occurred during sign-in.');
       }
     } finally {
       setLoading(false);

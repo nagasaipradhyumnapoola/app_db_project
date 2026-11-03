@@ -1,6 +1,12 @@
 import { supabase } from '../lib/supabase';
 
-// Uses Vite proxy (/api -> http://127.0.0.1:8080) for rock-solid same-origin connectivity
+// Uses Vite proxy (/api -> http://127.0.0.1:8080) when running locally or on local network
+const isLocalhost = typeof window !== 'undefined' && 
+  (window.location.hostname === 'localhost' || 
+   window.location.hostname === '127.0.0.1' ||
+   window.location.hostname.startsWith('192.168.') ||
+   window.location.hostname.startsWith('10.') ||
+   window.location.hostname.endsWith('.local'));
 const JAVA_API = '/api';
 
 /**
@@ -76,42 +82,51 @@ export function formatDatabaseError(error) {
 
 /**
  * Student Database Service
- * Communicates with the single-file Java Backend (Server.java at :8080) via Vite proxy (/api),
- * with graceful direct fallback if the Java server is offline.
+ * Automatically uses the local Java backend on localhost,
+ * and directly connects to Supabase Cloud on Vercel deployment.
  */
 export const studentService = {
   /**
-   * Authenticates teacher credentials via the Java Backend.
+   * Authenticates teacher credentials.
    */
   async login(teacherId, password) {
-    try {
-      const res = await fetch(`${JAVA_API}/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ teacherId, password })
-      });
+    // When running locally, try the local Java Backend first
+    if (isLocalhost) {
+      try {
+        const res = await fetch(`${JAVA_API}/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ teacherId, password })
+        });
 
-      const data = await res.json();
-      if (res.ok && data.access_token) {
-        // Persist session locally
-        localStorage.setItem('faculty_session', JSON.stringify(data));
-        return { data: { session: data, user: data.user }, error: null };
+        if (res.ok) {
+          const data = await res.json();
+          if (data.access_token) {
+            localStorage.setItem('faculty_session', JSON.stringify(data));
+            return { data: { session: data, user: data.user }, error: null };
+          }
+        }
+        if (res.status !== 404) {
+          const data = await res.json().catch(() => ({}));
+          return { data: null, error: data.error || 'Invalid Teacher ID or password.' };
+        }
+      } catch (err) {
+        // Fallback to direct client
       }
-      return { data: null, error: data.error || 'Invalid Teacher ID or password.' };
-    } catch (err) {
-      return { data: null, error: 'Unable to connect to Java backend on port 8080. Please ensure Java server is running.' };
     }
+
+    // On Vercel or if Java server is bypassed, signal to use direct Supabase Auth
+    return null;
   },
 
   /**
    * Fetches all students belonging to the authenticated teacher.
-   * Routes through Java Backend: GET /api/students(?search=...)
    */
   async getStudents(searchQuery = '') {
     const token = await getAuthToken();
 
-    // 1. Try Java Backend
-    if (token) {
+    // 1. Try Java Backend if on localhost
+    if (isLocalhost && token) {
       try {
         const cleanSearch = searchQuery ? searchQuery.trim() : '';
         const url = `${JAVA_API}/students${cleanSearch ? `?search=${encodeURIComponent(cleanSearch)}` : ''}`;
@@ -128,7 +143,7 @@ export const studentService = {
       }
     }
 
-    // 2. Direct Supabase Fallback
+    // 2. Direct Supabase Cloud (Vercel & fallback)
     try {
       let query = supabase
         .from('students')
@@ -152,7 +167,6 @@ export const studentService = {
 
   /**
    * Inserts a new student record for the authenticated teacher.
-   * Routes through Java Backend: POST /api/students
    */
   async createStudent(studentData) {
     const validationError = validateStudentInput(studentData);
@@ -162,8 +176,8 @@ export const studentService = {
 
     const token = await getAuthToken();
 
-    // 1. Try Java Backend
-    if (token) {
+    // 1. Try Java Backend if on localhost
+    if (isLocalhost && token) {
       try {
         const res = await fetch(`${JAVA_API}/students`, {
           method: 'POST',
@@ -174,10 +188,11 @@ export const studentService = {
           body: JSON.stringify(studentData)
         });
 
-        const json = await res.json();
         if (res.ok) {
+          const json = await res.json();
           return { data: json, error: null };
-        } else {
+        } else if (res.status !== 404) {
+          const json = await res.json().catch(() => ({}));
           return { data: null, error: json.error || 'Failed to create student via Java backend.' };
         }
       } catch (e) {
@@ -185,7 +200,7 @@ export const studentService = {
       }
     }
 
-    // 2. Direct Supabase Fallback
+    // 2. Direct Supabase Cloud (Vercel & fallback)
     try {
       const { data: { user }, error: authError } = await supabase.auth.getUser();
       if (authError || !user) {
@@ -218,7 +233,6 @@ export const studentService = {
 
   /**
    * Updates an existing student record.
-   * Routes through Java Backend: PUT /api/students/{id}
    */
   async updateStudent(id, studentData) {
     const validationError = validateStudentInput(studentData);
@@ -228,8 +242,8 @@ export const studentService = {
 
     const token = await getAuthToken();
 
-    // 1. Try Java Backend
-    if (token) {
+    // 1. Try Java Backend if on localhost
+    if (isLocalhost && token) {
       try {
         const res = await fetch(`${JAVA_API}/students/${id}`, {
           method: 'PUT',
@@ -240,10 +254,11 @@ export const studentService = {
           body: JSON.stringify(studentData)
         });
 
-        const json = await res.json();
         if (res.ok) {
+          const json = await res.json();
           return { data: json, error: null };
-        } else {
+        } else if (res.status !== 404) {
+          const json = await res.json().catch(() => ({}));
           return { data: null, error: json.error || 'Failed to update student via Java backend.' };
         }
       } catch (e) {
@@ -251,7 +266,7 @@ export const studentService = {
       }
     }
 
-    // 2. Direct Supabase Fallback
+    // 2. Direct Supabase Cloud (Vercel & fallback)
     try {
       const payload = {
         register_no: studentData.register_no.trim().toUpperCase(),
@@ -279,23 +294,22 @@ export const studentService = {
 
   /**
    * Deletes a student record by ID.
-   * Routes through Java Backend: DELETE /api/students/{id}
    */
   async deleteStudent(id) {
     const token = await getAuthToken();
 
-    // 1. Try Java Backend
-    if (token) {
+    // 1. Try Java Backend if on localhost
+    if (isLocalhost && token) {
       try {
         const res = await fetch(`${JAVA_API}/students/${id}`, {
           method: 'DELETE',
           headers: { Authorization: `Bearer ${token}` }
         });
 
-        const json = await res.json();
         if (res.ok) {
           return { success: true, error: null };
-        } else {
+        } else if (res.status !== 404) {
+          const json = await res.json().catch(() => ({}));
           return { success: false, error: json.error || 'Failed to delete student via Java backend.' };
         }
       } catch (e) {
@@ -303,7 +317,7 @@ export const studentService = {
       }
     }
 
-    // 2. Direct Supabase Fallback
+    // 2. Direct Supabase Cloud (Vercel & fallback)
     try {
       const { error } = await supabase
         .from('students')

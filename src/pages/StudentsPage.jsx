@@ -13,6 +13,13 @@ export default function StudentsPage({ session, onLogout }) {
   const [activeSearch, setActiveSearch] = useState('');
   const [editingStudent, setEditingStudent] = useState(null);
 
+  const isLocalhost = typeof window !== 'undefined' && 
+    (window.location.hostname === 'localhost' || 
+     window.location.hostname === '127.0.0.1' ||
+     window.location.hostname.startsWith('192.168.') ||
+     window.location.hostname.startsWith('10.') ||
+     window.location.hostname.endsWith('.local'));
+
   // Extract display teacher ID
   const teacherIdDisplay = session?.user?.email
     ? emailToTeacherId(session.user.email)
@@ -92,7 +99,9 @@ export default function StudentsPage({ session, onLogout }) {
           <div className="navbar-brand">
             <img src="/logo.jpg" alt="Logo" className="navbar-logo-img" />
             <span className="brand-title">Student Registry</span>
-            <span className="badge badge-outline">[ ENGINE: JAVA 25 ]</span>
+            <span className="badge badge-outline">
+              {isLocalhost ? '[ ENGINE: JAVA 25 ]' : '[ CLOUD: VERCEL + SUPABASE ]'}
+            </span>
           </div>
 
           <div className="navbar-user">
